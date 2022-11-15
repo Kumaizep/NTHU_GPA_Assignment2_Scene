@@ -48,6 +48,8 @@ THE SOFTWARE.
 #include <Windows.h>
 #elif __APPLE__
 #include <sys/time.h>
+#elif __linux__
+#include <time.h>
 #endif
 
 #include <string>
@@ -71,8 +73,10 @@ private:
 	__int64 lastUpdate;
 #elif __APPLE__
 	long lastUpdate;
+#elif __linux__
+	long lastUpdate;
 #else
-	no_timer_implementation_available_in_this_environment
+	#error no_timer_implementation_available_in_this_environment
 #endif
 };
 
@@ -94,7 +98,7 @@ void Timer::Start(long initMktime)
 	frequency = float(f.QuadPart) / 1000.0f;
 	QueryPerformanceCounter(&f);
 	lastUpdate = f.QuadPart;
-#elif __APPLE__
+#else
 	timeval time;
 	gettimeofday(&time, NULL);
 	lastUpdate = time.tv_sec * 1000 + time.tv_usec / 1000;
@@ -110,7 +114,7 @@ void Timer::Update(void)
 	totalMktime += long(deltaTime);
 	deltaTime /= 1000.0f;
 	lastUpdate = t.QuadPart;
-#elif __APPLE__
+#else
 	timeval time;
 	gettimeofday(&time, NULL);
 	long current = time.tv_sec * 1000 + time.tv_usec / 1000;
