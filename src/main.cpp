@@ -1,52 +1,520 @@
 #include "Common.h"
 
-GLubyte timer_cnt = 0;
-bool timer_enabled = true;
-unsigned int timer_speed = 16;
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
+#define INIT_WIDTH 1600
+#define INIT_HEIGHT 900
+#define INIT_VIEWPORT_X 0
+#define INIT_VIEWPORT_Y 0
+#define INIT_VIEWPORT_WIDTH 1600
+#define INIT_VIEWPORT_HEIGHT 900
+#define MAX_BONE_INFLUENCE 4
 
 using namespace glm;
 using namespace std;
 
-char** loadShaderSource(const char* file)
-{
-	FILE* fp = fopen(file, "rb");
-	fseek(fp, 0, SEEK_END);
-	long sz = ftell(fp);
-	fseek(fp, 0, SEEK_SET);
-	char *src = new char[sz + 1];
-	fread(src, sizeof(char), sz, fp);
-	src[sz] = '\0';
-	char **srcp = new char*[1];
-	srcp[0] = src;
-	return srcp;
-}
+mat4 view(1.0f);                    // V of MVP, viewing matrix
+mat4 projection(1.0f);              // P of MVP, projection matrix
 
-void freeShaderSource(char** srcp)
-{
-	delete srcp[0];
-	delete srcp;
-}
+const char* textureTypes[] = {
+    "textureNone"
+    "textureSpecular", 
+    "textureAmbient", 
+    "textureEmissive", 
+    "textureHeight", 
+    "textureNormal", 
+    "textureShininess", 
+    "textureOpacity", 
+    "textureDisplacement", 
+    "textureLightmap", 
+    "textureReflection", 
+    "textureUnknow"
+};
 
-void My_Init()
+const aiTextureType aiTextureTypes[] = {
+    aiTextureType_NONE, 
+    aiTextureType_DIFFUSE, 
+    aiTextureType_SPECULAR, 
+    aiTextureType_AMBIENT, 
+    aiTextureType_EMISSIVE, 
+    aiTextureType_HEIGHT, 
+    aiTextureType_NORMALS, 
+    aiTextureType_SHININESS, 
+    aiTextureType_OPACITY, 
+    aiTextureType_DISPLACEMENT, 
+    aiTextureType_LIGHTMAP, 
+    aiTextureType_REFLECTION, 
+    aiTextureType_UNKNOWN
+};
+
+GLint um4p;
+GLint um4mv;
+GLint tex;
+
+GLubyte timer_cnt = 0;
+bool timer_enabled = true;
+unsigned int timer_speed = 16;
+
+struct RotateType
 {
-	glClearColor(0.0f, 0.6f, 0.0f, 1.0f);
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
+    // Struct to represents how object should rotate
+    float onX = 0; 
+    float onZ = 0; 
+    float onY = 0;
+    RotateType() : onX(0), onZ(0), onY(0) {}
+    RotateType(float x, float z, float y) : onX(x), onZ(z), onY(y) {}
+};
+
+RotateType cameraRotate = RotateType();
+
+struct Vertex
+{
+    // position
+    vec3 position;
+    // normal
+    vec3 normal;
+    // texCoords
+    vec2 texCoords;
+    // tangent
+    vec3 tangent;
+    // bitangent
+    vec3 bitangent;
+    // bone indexes which will influence this vertex
+    int mBoneIDs[MAX_BONE_INFLUENCE];
+    // weights from each bone
+    float mWeights[MAX_BONE_INFLUENCE];
+};
+
+struct Texture
+{
+    GLuint id;
+    string type;
+    string path;
+};
+
+vector<Texture> loadedTextures;
+
+struct ImageData
+{
+    int width;
+    int height;
+    GLenum format;
+    unsigned char* data;
+
+    ImageData() : width(0), height(0), data(0) {}
+};
+
+class Shader
+{
+public:
+    GLuint program;
+    Shader(const char* vertexPath, const char* fragmentPath)
+    {
+        glViewport(INIT_VIEWPORT_X, INIT_VIEWPORT_Y, INIT_VIEWPORT_WIDTH, INIT_VIEWPORT_HEIGHT);
+        glClearColor(0.0f, 0.3f, 0.0f, 1.00f);
+        // glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LEQUAL);
+
+        // Create Shader Program
+        program = glCreateProgram();
+
+        // Create customize shader by tell openGL specify shader type
+        char **vertexShaderSource = loadShaderSource(vertexPath);
+        GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(vertexShader, 1, vertexShaderSource, NULL);
+        freeShaderSource(vertexShaderSource);
+        glCompileShader(vertexShader);
+        shaderLog(vertexShader);
+
+        char **fragmentShaderSource = loadShaderSource(fragmentPath);
+        GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(fragmentShader, 1, fragmentShaderSource, NULL);
+        freeShaderSource(fragmentShaderSource);
+        glCompileShader(fragmentShader);
+        shaderLog(fragmentShader);
+
+        glAttachShader(program, vertexShader);
+        glAttachShader(program, fragmentShader);
+        glLinkProgram(program);
+
+        // Tell OpenGL to use this shader program now
+        glUseProgram(program);
+    }
+    // activate the shader
+    // ------------------------------------------------------------------------
+    void use() 
+    { 
+        glUseProgram(program); 
+    }
+    // utility uniform functions
+    // ------------------------------------------------------------------------
+    void setInt(const GLchar* name, int value) const
+    { 
+        glUniform1i(glGetUniformLocation(program, name), value); 
+    }
+
+    void setMat4(const GLchar* name, const glm::mat4 &mat) const
+    {
+        glUniformMatrix4fv(glGetUniformLocation(program, name), 1, GL_FALSE, &mat[0][0]);
+    }
+
+private:
+    char** loadShaderSource(const char* file)
+    {
+        FILE* fp = fopen(file, "rb");
+        fseek(fp, 0, SEEK_END);
+        long sz = ftell(fp);
+        fseek(fp, 0, SEEK_SET);
+        char *src = new char[sz + 1];
+        fread(src, sizeof(char), sz, fp);
+        src[sz] = '\0';
+        char **srcp = new char*[1];
+        srcp[0] = src;
+        return srcp;
+    }
+
+    void freeShaderSource(char** srcp)
+    {
+        delete srcp[0];
+        delete srcp;
+    }
+};
+
+class Mesh
+{
+public:
+    vector<Vertex>  vertices;
+    vector<GLuint>  indices;
+    vector<Texture> textures;
+
+    Mesh(vector<Vertex> vertices, vector<GLuint> indices, vector<Texture> textures)
+        : vertices(vertices), indices(indices), textures(textures)
+    {
+        setMesh();
+    }
+
+    void draw(Shader shader) 
+    {
+        GLuint textureTypeNumber[13];
+        for (int i = 0; i < 13; ++i)
+        {
+            textureTypeNumber[i] = 1;
+        }
+        for (GLuint i = 0; i < textures.size(); i++)
+        {
+            glActiveTexture(GL_TEXTURE0 + i);
+            string number;
+            string name = textures[i].type;
+            for (int j = 1; j < 13; ++j)
+            {
+                if (name == string(textureTypes[j]))
+                    number = to_string(textureTypeNumber[j]++);
+            }
+            // if (i > 0)
+            //     cout << "material." + name + number << endl;
+
+            shader.setInt((name + number).c_str(), i);
+            // glUniform1f(glGetUniformLocation(shader.program, (name + number).c_str()), i);
+            glBindTexture(GL_TEXTURE_2D, textures[i].id);
+        }
+        glActiveTexture(GL_TEXTURE0);
+
+        glBindVertexArray(VAO);
+        glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+
+        glActiveTexture(GL_TEXTURE0);
+    }
+
+private:
+    GLuint VAO, VBO, EBO;
+    void setMesh()
+    {
+        // cout << "222 ";
+        glGenVertexArrays(1, &VAO);
+        glBindVertexArray(VAO);
+
+        glGenBuffers(1, &VBO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), &vertices[0], GL_STATIC_DRAW);  
+
+        glGenBuffers(1, &EBO);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), &indices[0], GL_STATIC_DRAW);
+
+        glEnableVertexAttribArray(0); 
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), 
+            (GLvoid*)0);
+
+        glEnableVertexAttribArray(1); 
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), 
+            (GLvoid*)offsetof(Vertex, normal));
+
+        glEnableVertexAttribArray(2); 
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), 
+            (GLvoid*)offsetof(Vertex, texCoords));
+
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), 
+            (GLvoid*)offsetof(Vertex, tangent));
+
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), 
+            (GLvoid*)offsetof(Vertex, bitangent));
+
+        glEnableVertexAttribArray(5);
+        glVertexAttribIPointer(5, 4, GL_INT, sizeof(Vertex),
+            (GLvoid*)offsetof(Vertex, mBoneIDs));
+
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+            (GLvoid*)offsetof(Vertex, mWeights));
+
+        glBindVertexArray(0);
+    }
+};
+
+class Model 
+{
+public:
+    Model(const string path, bool gamma = false) : gammaCorrection(gamma)
+    {
+        loadModel(path);
+    }
+
+    void draw(Shader shader)
+    {
+        for (GLuint i = 0; i < meshes.size(); i++)
+            meshes[i].draw(shader);
+    }
+private:
+    vector<Mesh> meshes;
+    string directory;
+    bool gammaCorrection;
+
+    void loadModel(const string path)
+    {
+        Assimp::Importer importer;
+        const aiScene* scene = importer.ReadFile(path, 
+            aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs | aiProcess_CalcTangentSpace); 
+
+        if (!scene || scene->mFlags == AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) 
+        {
+            cout << "ERROR::ASSIMP::" << importer.GetErrorString() << endl;
+            return;
+        }
+        directory = path.substr(0, path.find_last_of('/'));
+
+        processNode(scene->mRootNode, scene);
+    }
+
+    void processNode(aiNode* node, const aiScene* scene)
+    {
+        for (GLuint i = 0; i < node->mNumMeshes; i++)
+        {
+            meshes.push_back(processMesh(scene->mMeshes[node->mMeshes[i]], scene)); 
+        }
+        for (GLuint i = 0; i < node->mNumChildren; i++)
+        {
+            processNode(node->mChildren[i], scene);
+        }
+    }
+
+    Mesh processMesh(aiMesh* mesh, const aiScene* scene)
+    {
+        vector<Vertex> vertices  = processVertices(mesh);
+        vector<GLuint> indices   = processIndices(mesh);
+        vector<Texture> textures = processTextures(mesh, scene);
+        return Mesh(vertices, indices, textures);
+    }
+
+    vector<Vertex> processVertices(aiMesh* mesh)
+    {
+        vector<Vertex> vertices;
+        for (GLuint i = 0; i < mesh->mNumVertices; i++)
+        {
+            Vertex vertex;
+
+            vertex.position = vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+            if (mesh->HasNormals())
+            {
+                vertex.normal = vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
+            }
+            if (mesh->mTextureCoords[0])
+            {
+                vertex.texCoords = vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
+                vertex.tangent   = vec3(mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z);
+                vertex.bitangent = vec3(mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z);
+            }
+            else
+            {
+                vertex.texCoords = vec2(0.0f, 0.0f);
+            }
+
+            vertices.push_back(vertex);
+        }
+        return vertices;
+    }
+
+    vector<GLuint> processIndices(aiMesh* mesh)
+    {
+        vector<GLuint> indices;
+        for (GLuint i = 0; i < mesh->mNumFaces; i++)
+        {
+            for (GLuint j = 0; j < (mesh->mFaces[i]).mNumIndices; j++)
+            {
+                indices.push_back((mesh->mFaces[i]).mIndices[j]);
+            }
+        }
+        return indices;
+    }
+
+    vector<Texture> processTextures(aiMesh* mesh, const aiScene* scene)
+    {
+        vector<Texture> textures;
+        aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];    
+
+        if (mesh->mMaterialIndex >= 0)
+        {
+            for (int i = 1; i < 13; ++i)
+            {
+                vector<Texture> Maps = loadMaterialTextures(material, aiTextureTypes[i], textureTypes[i]);
+                textures.insert(textures.end(), Maps.begin(), Maps.end());
+            }
+            
+        }
+        return textures;
+    }
+
+
+    vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, string typeName)
+    {
+        vector<Texture> textures;
+        // cout << "DEBUG::MAIN::C-MODLE-F-LMT::TP: " << typeName << endl;
+        // cout << "DEBUG::MAIN::C-MODLE-F-LMT::GTC: " << mat->GetTextureCount(type) << endl;
+        for (GLuint i = 0; i < mat->GetTextureCount(type); i++)
+        {
+            aiString str;
+            mat->GetTexture(type, i, &str);
+            int loadIndex = getLoadedTextureId(str);
+            if (loadIndex == -1)
+            {
+                cout << "DEBUG::MAIN::C-MODLE-F-LMT::FN: " << str.C_Str() << endl;
+                Texture texture;
+                texture.id = loadTexture(string(str.C_Str()), directory);
+                texture.type = typeName;
+                texture.path = str.C_Str();
+                textures.push_back(texture);
+                loadedTextures.push_back(texture);
+            }
+            else
+            {
+                textures.push_back(loadedTextures[loadIndex]);
+            }
+        }
+        return textures;
+    }
+
+    int getLoadedTextureId(aiString str)
+    {
+        for(GLuint j = 0; j < loadedTextures.size(); j++)
+        {
+            if(strcmp(loadedTextures[j].path.data(), str.C_Str()) == 0)
+            {
+                return j;
+            }
+        }
+        return -1;
+    }
+
+    GLint loadTexture(string path, string directory)
+    {
+        string filename = directory + '/' + path;
+        GLuint textureID;
+        glGenTextures(1, &textureID);
+        ImageData imageData = loadImage(filename.c_str());
+
+        cout << "DEBUG::MAIN::C-MODLE-F-LT::LoadIMG: " << filename.c_str() << endl;
+
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glTexImage2D(GL_TEXTURE_2D, 0, imageData.format, imageData.width, imageData.height, 0, 
+            imageData.format, GL_UNSIGNED_BYTE, imageData.data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        // glBindTexture(GL_TEXTURE_2D, 0);
+        return textureID;
+    }
+
+    ImageData loadImage(const char* path)
+    {
+        ImageData texture;
+        int n;
+        stbi_set_flip_vertically_on_load(true);
+        stbi_uc *data = stbi_load(path, &texture.width, &texture.height, &n, 4);
+        if(data != NULL)
+        {
+            if (n == 1)
+                texture.format = GL_RED;
+            else if (n == 3)
+                texture.format = GL_RGB;
+            else if (n == 4)
+                texture.format = GL_RGBA;
+
+            texture.data = new unsigned char[texture.width * texture.height * 4 * sizeof(unsigned char)];
+            memcpy(texture.data, data, texture.width * texture.height * 4 * sizeof(unsigned char));
+            stbi_image_free(data);
+        }
+        else
+        {
+            cout << "ERROR::Texture failed to load at path: " << path << endl;
+        }
+        return texture;
+    }
+};
+
+vector<Model> models;
+
+void initialization()
+{
+    models.push_back(Model("asset/sponza/sponza.obj"));
+    // models.push_back(Model("asset/sibenik/sibenik.obj"));
+
+    projection = perspective(radians(60.0f), (float)INIT_VIEWPORT_WIDTH / (float)INIT_VIEWPORT_HEIGHT, 0.1f, 1000.0f);
+    view = lookAt(vec3(-10.0f * cos(radians(cameraRotate.onZ)), 5.0f, -10.0f * sin(radians(cameraRotate.onZ))), vec3(1.0f, 1.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f));
 }
 
 // GLUT callback. Called to draw the scene.
-void My_Display()
+void display(Shader shader)
 {
+    glClearColor(0.0f, 0.25f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (timer_enabled) timer_cnt += 1.0f;
+
+    shader.use();
+
+    projection = perspective(radians(60.0f), (float)INIT_VIEWPORT_WIDTH / (float)INIT_VIEWPORT_HEIGHT, 0.1f, 1000.0f);
+    view = lookAt(vec3(-10.0f * cos(radians(cameraRotate.onZ)), 5.0f, -10.0f * sin(radians(cameraRotate.onZ))), vec3(1.0f, 1.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f));
+    shader.setMat4("um4p", projection);
+    shader.setMat4("um4mv", view);
+    for (auto& it : models)
+    {
+        it.draw(shader);
+    }
 }
 
-void My_Reshape(GLFWwindow *window, int width, int height)
+void reshapeResponse(GLFWwindow *window, int width, int height)
 {
 	glViewport(0, 0, width, height);
 }
 
-void My_Keyboard(GLFWwindow *window, int key, int scancode, int action, int mods)
+void keyboardResponse(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
     switch (key) {
         case GLFW_KEY_ESCAPE:
@@ -69,7 +537,7 @@ void My_Keyboard(GLFWwindow *window, int key, int scancode, int action, int mods
     }
 }
 
-void My_Mouse(GLFWwindow *window, int button, int action, int mods)
+void mouseResponse(GLFWwindow *window, int button, int action, int mods)
 {
     double x, y;
     glfwGetCursorPos(window, &x, &y);
@@ -91,22 +559,18 @@ int main(int argc, char **argv)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    
-#ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // fix compilation on OS X
-#endif
 
     // specifies whether to use full resolution framebuffers on Retina displays
     glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
     // create window
-    GLFWwindow* window = glfwCreateWindow(600, 600, "AS2_Framework", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(INIT_WIDTH, INIT_HEIGHT, "GPA_Assignment2", NULL, NULL);
     if (window == NULL)
     {
         std::cout << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
         return -1;
     }
-    glfwSetWindowPos(window, 100, 100);
+    // glfwSetWindowPos(window, 100, 100);
     glfwMakeContextCurrent(window);
     
     // load OpenGL function pointer
@@ -117,20 +581,22 @@ int main(int argc, char **argv)
     }
 
     dumpInfo();
-    My_Init();
+    Shader shader("asset/vertex.vs.glsl", "asset/fragment.fs.glsl");
+    initialization();
 
     // register glfw callback functions
-    glfwSetFramebufferSizeCallback(window, My_Reshape);
-    glfwSetKeyCallback(window, My_Keyboard);
-    glfwSetMouseButtonCallback(window, My_Mouse);
+    glfwSetFramebufferSizeCallback(window, reshapeResponse);
+    glfwSetKeyCallback(window, keyboardResponse);
+    glfwSetMouseButtonCallback(window, mouseResponse);
     
+    cout << "DEBUG::MAIN::F-MAIN::1" << endl;
     // main loop
     while (!glfwWindowShouldClose(window))
     {
         // Poll input event
         glfwPollEvents();
         
-        My_Display();
+        display(shader);
 
         // swap buffer from back to front
         glfwSwapBuffers(window);
