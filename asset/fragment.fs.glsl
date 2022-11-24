@@ -13,10 +13,13 @@ in VertexData
     vec2 texcoord;
 } vertexData;
 
-uniform sampler2D tex;
+// uniform sampler2D tex;
+uniform sampler2D textureDiffuse1;
+uniform sampler2D textureDiffuse2;
 
 void main()
 {
-    vec3 texColor = texture(tex,vertexData.texcoord).rgb;
-    fragColor = vec4(texColor, 1.0);
+    // vec3 texColor = texture(tex ,vertexData.texcoord).rgb;
+    // fragColor = vec4(texColor, 1.0);
+    fragColor = texture(textureDiffuse1 ,vertexData.texcoord);
 }

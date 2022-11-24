@@ -1,8 +1,8 @@
 #include "Common.h"
 
-#include <assimp/Importer.hpp>
-#include <assimp/scene.h>
-#include <assimp/postprocess.h>
+#include "assimp/Importer.hpp"
+#include "assimp/scene.h"
+#include "assimp/postprocess.h"
 
 #define INIT_WIDTH 1600
 #define INIT_HEIGHT 900
@@ -19,7 +19,8 @@ mat4 view(1.0f);                    // V of MVP, viewing matrix
 mat4 projection(1.0f);              // P of MVP, projection matrix
 
 const char* textureTypes[] = {
-    "textureNone"
+    "textureNone",
+    "textureDiffuse", 
     "textureSpecular", 
     "textureAmbient", 
     "textureEmissive", 
@@ -53,21 +54,18 @@ GLint um4p;
 GLint um4mv;
 GLint tex;
 
-GLubyte timer_cnt = 0;
-bool timer_enabled = true;
-unsigned int timer_speed = 16;
+GLubyte timerCounter = 0;
+bool timerEnabled = true;
+float timerCurrent = 0.0f;
+float timerLast = 0.0f;
+unsigned int timerSpeed = 16;
 
-struct RotateType
-{
-    // Struct to represents how object should rotate
-    float onX = 0; 
-    float onZ = 0; 
-    float onY = 0;
-    RotateType() : onX(0), onZ(0), onY(0) {}
-    RotateType(float x, float z, float y) : onX(x), onZ(z), onY(y) {}
-};
+bool keyPressing[400] = {0};
+float keyPressTime[400] = {0.0f};
 
-RotateType cameraRotate = RotateType();
+bool trackballEnable = false;
+vec2 mouseCurrent = vec2(0.0f, 0.0f);
+vec2 mouseLast = vec2(0.0f, 0.0f);
 
 struct Vertex
 {
@@ -104,6 +102,167 @@ struct ImageData
     unsigned char* data;
 
     ImageData() : width(0), height(0), data(0) {}
+};
+
+enum MoveDirection
+{
+    FORWARD,
+    BACKWARD,
+    RIGHT,
+    LEFT,
+    UP,
+    DOWN
+};
+
+class Camera
+{
+public:
+    // camera status
+    vec3 position;
+    vec3 front;
+    vec3 top;
+    vec3 right;
+    // perspective status
+    float fieldOfView;
+    float aspect;
+    float near;
+    float far;
+    // move parameter
+    float moveSpeed;
+    // trackball parameter
+    float trackballSpeed;
+    float theta;
+    float phi;
+
+    Camera()
+    {
+        position       = vec3(0.0f, 0.0f, 0.0f);
+        front          = vec3(1.0f, 0.0f, 0.0f);
+        top            = vec3(0.0f, 1.0f, 0.0f);
+        right          = vec3(0.0f, 0.0f, 1.0f);
+        fieldOfView    = 60.0f;
+        aspect         = (float)INIT_VIEWPORT_WIDTH / (float)INIT_VIEWPORT_HEIGHT;
+        near           = 0.1f;
+        far            = 1000.0f;
+        moveSpeed      = 10.0f;
+        trackballSpeed = 0.1f;
+        theta          = 0.0f;
+        phi            = 0.0f;
+    }
+
+    Camera& withPosition(vec3 val)
+    {
+        position = val;
+        return *this;
+    }
+
+    Camera& withFront(vec3 val)
+    {
+        front = val;
+        return *this;
+    }
+
+    Camera& withTop(vec3 val)
+    {
+        top = val;
+        return *this;
+    }
+
+    Camera& withRight(vec3 val)
+    {
+        right = val;
+        return *this;
+    }
+
+    Camera& withFieldOfView(float val)
+    {
+        fieldOfView = val;
+        return *this;
+    }
+
+    Camera& withAspect(float val)
+    {
+        aspect = val;
+        return *this;
+    }
+
+    Camera& withNear(float val)
+    {
+        near = val;
+        return *this;
+    }
+
+    Camera& withFar(float val)
+    {
+        far = val;
+        return *this;
+    }
+
+    Camera& withMoveSpeed(float val)
+    {
+        moveSpeed = val;
+        return *this;
+    }
+
+    Camera& withTrackballSpeed(float val)
+    {
+        trackballSpeed = val;
+        return *this;
+    }
+
+    mat4 getPerspective()
+    {
+        return perspective(radians(fieldOfView), aspect, near, far);
+    }
+
+    mat4 getView()
+    {
+        // cout << "DEBUG::MAIN::C-CAMERA-F-GV: " << position. x << " " << position.y << " " << position.z << endl;
+        return lookAt(position, position + front, top);
+    }
+
+    void processMove(MoveDirection moveDirction, float timeDifferent)
+    {
+        float shift = moveSpeed * timeDifferent;
+        cout << "DEBUG::MAIN::C-CAMERA-F-PM-1: " << shift << endl;
+        if (moveDirction == FORWARD)
+            position += front * shift;
+        if (moveDirction == BACKWARD)
+            position -= front * shift;
+        if (moveDirction == LEFT)
+            position -= right * shift;
+        if (moveDirction == RIGHT)
+            position += right * shift;
+        if (moveDirction == UP)
+            position += top * shift;
+        if (moveDirction == DOWN)
+            position -= top * shift;
+        cout << "DEBUG::MAIN::C-CAMERA-F-PM-2: " << position. x << " " << position.y << " " << position.z << endl;
+    }
+
+    void processTrackball(float thetaDifferent, float phiDifferent)
+    {
+        theta -= thetaDifferent * trackballSpeed;
+        phi += phiDifferent * trackballSpeed;
+        if (phi > 85)
+            phi = 85.0f;
+        else if (phi < -85)
+            phi += -85.0f;
+        updateCameraStatus();
+    };
+
+private:
+    void updateCameraStatus()
+    {
+        front.x = cos(radians(theta)) * cos(radians(phi));
+        front.y = sin(radians(phi));
+        front.z = sin(radians(theta)) * cos(radians(phi));
+        front = normalize(front);
+
+        right = normalize(cross(front, vec3(0.0f, 1.0f, 0.0f)));
+        top = normalize(cross(right, front));
+    }
+    
 };
 
 class Shader
@@ -183,6 +342,8 @@ private:
     }
 };
 
+int checkTexture[14] = {0};
+
 class Mesh
 {
 public:
@@ -196,7 +357,7 @@ public:
         setMesh();
     }
 
-    void draw(Shader shader) 
+    void draw(Shader& shader) 
     {
         GLuint textureTypeNumber[13];
         for (int i = 0; i < 13; ++i)
@@ -211,16 +372,19 @@ public:
             for (int j = 1; j < 13; ++j)
             {
                 if (name == string(textureTypes[j]))
+                {
                     number = to_string(textureTypeNumber[j]++);
+                    if (checkTexture[j] < i)
+                        checkTexture[j] = i;
+                }
             }
-            // if (i > 0)
-            //     cout << "material." + name + number << endl;
+            // if (i > 0)  
+                // cout << name + number << endl;
 
-            shader.setInt((name + number).c_str(), i);
-            // glUniform1f(glGetUniformLocation(shader.program, (name + number).c_str()), i);
             glBindTexture(GL_TEXTURE_2D, textures[i].id);
+            // shader.setInt((name + number).c_str(), i);
+            // glUniform1f(glGetUniformLocation(shader->program, (name + number).c_str()), i);
         }
-        glActiveTexture(GL_TEXTURE0);
 
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
@@ -280,20 +444,20 @@ private:
 class Model 
 {
 public:
-    Model(const string path, bool gamma = false) : gammaCorrection(gamma)
+    Model(const string path)
     {
         loadModel(path);
     }
 
-    void draw(Shader shader)
+    void draw(Shader& shader)
     {
+        cout << "DEBUG::MAIN::C-MODEL-F-D: " << meshes.size() << endl;
         for (GLuint i = 0; i < meshes.size(); i++)
             meshes[i].draw(shader);
     }
 private:
     vector<Mesh> meshes;
     string directory;
-    bool gammaCorrection;
 
     void loadModel(const string path)
     {
@@ -377,15 +541,12 @@ private:
         vector<Texture> textures;
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];    
 
-        if (mesh->mMaterialIndex >= 0)
+        for (int i = 1; i < 13; ++i)
         {
-            for (int i = 1; i < 13; ++i)
-            {
-                vector<Texture> Maps = loadMaterialTextures(material, aiTextureTypes[i], textureTypes[i]);
-                textures.insert(textures.end(), Maps.begin(), Maps.end());
-            }
-            
+            vector<Texture> Maps = loadMaterialTextures(material, aiTextureTypes[i], textureTypes[i]);
+            textures.insert(textures.end(), Maps.begin(), Maps.end());
         }
+
         return textures;
     }
 
@@ -404,7 +565,7 @@ private:
             {
                 cout << "DEBUG::MAIN::C-MODLE-F-LMT::FN: " << str.C_Str() << endl;
                 Texture texture;
-                texture.id = loadTexture(string(str.C_Str()), directory);
+                texture.id = TextureFromFile(string(str.C_Str()), directory);
                 texture.type = typeName;
                 texture.path = str.C_Str();
                 textures.push_back(texture);
@@ -430,6 +591,45 @@ private:
         return -1;
     }
 
+    unsigned int TextureFromFile(const string &path, const string &directory)
+    {
+        string filename = directory + '/' + path;
+
+        unsigned int textureID;
+        glGenTextures(1, &textureID);
+
+        int width, height, nrComponents;
+        unsigned char *data = stbi_load(filename.c_str(), &width, &height, &nrComponents, 0);
+        if (data)
+        {
+            GLenum format;
+            if (nrComponents == 1)
+                format = GL_RED;
+            else if (nrComponents == 3)
+                format = GL_RGB;
+            else if (nrComponents == 4)
+                format = GL_RGBA;
+
+            glBindTexture(GL_TEXTURE_2D, textureID);
+            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+            glGenerateMipmap(GL_TEXTURE_2D);
+
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+            stbi_image_free(data);
+        }
+        else
+        {
+            std::cout << "Texture failed to load at path: " << filename << std::endl;
+            stbi_image_free(data);
+        }
+
+        return textureID;
+    }
+
     GLint loadTexture(string path, string directory)
     {
         string filename = directory + '/' + path;
@@ -437,7 +637,7 @@ private:
         glGenTextures(1, &textureID);
         ImageData imageData = loadImage(filename.c_str());
 
-        cout << "DEBUG::MAIN::C-MODLE-F-LT::LoadIMG: " << filename.c_str() << endl;
+        // cout << "DEBUG::MAIN::C-MODLE-F-LT::LoadIMG: " << filename.c_str() << endl;
 
         glBindTexture(GL_TEXTURE_2D, textureID);
         glTexImage2D(GL_TEXTURE_2D, 0, imageData.format, imageData.width, imageData.height, 0, 
@@ -486,23 +686,65 @@ void initialization()
     models.push_back(Model("asset/sponza/sponza.obj"));
     // models.push_back(Model("asset/sibenik/sibenik.obj"));
 
-    projection = perspective(radians(60.0f), (float)INIT_VIEWPORT_WIDTH / (float)INIT_VIEWPORT_HEIGHT, 0.1f, 1000.0f);
-    view = lookAt(vec3(-10.0f * cos(radians(cameraRotate.onZ)), 5.0f, -10.0f * sin(radians(cameraRotate.onZ))), vec3(1.0f, 1.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f));
+    timerLast = glfwGetTime();
+    mouseLast = vec2(0.0f, 0.0f);   
+}
+
+void timerUpdate()
+{
+    timerLast = timerCurrent;
+    timerCurrent = glfwGetTime();
+}
+
+void processCameraMove(Camera& camera)
+{
+    float timeDifferent = 0.0f;
+    if (timerEnabled)
+        timeDifferent = timerCurrent - timerLast;
+
+    if (keyPressing[GLFW_KEY_W])
+        camera.processMove(FORWARD, timeDifferent);
+    if (keyPressing[GLFW_KEY_S])
+        camera.processMove(BACKWARD, timeDifferent);
+    if (keyPressing[GLFW_KEY_A])
+        camera.processMove(LEFT, timeDifferent);
+    if (keyPressing[GLFW_KEY_D])
+        camera.processMove(RIGHT, timeDifferent);
+    if (keyPressing[GLFW_KEY_Z])
+        camera.processMove(UP, timeDifferent);
+    if (keyPressing[GLFW_KEY_X])
+        camera.processMove(DOWN, timeDifferent);
+
+}
+
+void processCameraTrackball(Camera& camera, GLFWwindow *window)
+{   
+    double x, y;
+    glfwGetCursorPos(window, &x, &y); 
+    mouseLast = mouseCurrent;
+    mouseCurrent = vec2(x, y);
+
+    vec2 mouseDifferent = vec2(0.0f, 0.0f);
+    if (trackballEnable)
+        mouseDifferent = mouseCurrent - mouseLast;
+
+    camera.processTrackball(mouseDifferent.x, mouseDifferent.y);
 }
 
 // GLUT callback. Called to draw the scene.
-void display(Shader shader)
+void display(Shader& shader, Camera& camera)
 {
     glClearColor(0.0f, 0.25f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    if (timer_enabled) timer_cnt += 1.0f;
+    if (timerEnabled) timerCounter += 1.0f;
 
     shader.use();
 
-    projection = perspective(radians(60.0f), (float)INIT_VIEWPORT_WIDTH / (float)INIT_VIEWPORT_HEIGHT, 0.1f, 1000.0f);
-    view = lookAt(vec3(-10.0f * cos(radians(cameraRotate.onZ)), 5.0f, -10.0f * sin(radians(cameraRotate.onZ))), vec3(1.0f, 1.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f));
+    projection = camera.getPerspective();
+    view = camera.getView();
     shader.setMat4("um4p", projection);
     shader.setMat4("um4mv", view);
+
     for (auto& it : models)
     {
         it.draw(shader);
@@ -521,16 +763,23 @@ void keyboardResponse(GLFWwindow *window, int key, int scancode, int action, int
             glfwSetWindowShouldClose(window, true);
             break;
         case GLFW_KEY_T:
-            if (action == GLFW_PRESS) timer_enabled = !timer_enabled;
+            if (action == GLFW_PRESS) timerEnabled = !timerEnabled;
             break;
-        case GLFW_KEY_F1:
-            if (action == GLFW_PRESS) printf("F1 is pressed\n");
-            break;
-        case GLFW_KEY_PAGE_UP:
-            if (action == GLFW_PRESS) printf("Page up is pressed\n");
-            break;
-        case GLFW_KEY_LEFT:
-            if (action == GLFW_PRESS) printf("Left arrow is pressed\n");
+        case GLFW_KEY_D:
+        case GLFW_KEY_A:
+        case GLFW_KEY_W:
+        case GLFW_KEY_S:
+        case GLFW_KEY_Z:
+        case GLFW_KEY_X:
+            if (action == GLFW_PRESS)
+            {
+                keyPressing[key] = true;
+                // keyPressTime[key] = timerCounter;
+            }
+            else if (action == GLFW_RELEASE)
+            {
+                keyPressing[key] = false;
+            }
             break;
         default:
             break;
@@ -540,13 +789,26 @@ void keyboardResponse(GLFWwindow *window, int key, int scancode, int action, int
 void mouseResponse(GLFWwindow *window, int button, int action, int mods)
 {
     double x, y;
-    glfwGetCursorPos(window, &x, &y);
-    
-    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+    glfwGetCursorPos(window, &x, &y); 
+    if (button == GLFW_MOUSE_BUTTON_LEFT)
+    {
         if (action == GLFW_PRESS) {
+            // trackballEnable
             printf("Mouse %d is pressed at (%f, %f)\n", button, x, y);
         }
         else if (action == GLFW_RELEASE) {
+            printf("Mouse %d is released at (%f, %f)\n", button, x, y);
+        }
+    }
+    if (button == GLFW_MOUSE_BUTTON_MIDDLE)
+    {
+        
+        if (action == GLFW_PRESS) {
+            trackballEnable = true;
+            printf("Mouse %d is pressed at (%f, %f)\n", button, x, y);
+        }
+        else if (action == GLFW_RELEASE) {
+            trackballEnable = false;
             printf("Mouse %d is released at (%f, %f)\n", button, x, y);
         }
     }
@@ -561,7 +823,7 @@ int main(int argc, char **argv)
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // specifies whether to use full resolution framebuffers on Retina displays
-    glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
+    // glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
     // create window
     GLFWwindow* window = glfwCreateWindow(INIT_WIDTH, INIT_HEIGHT, "GPA_Assignment2", NULL, NULL);
     if (window == NULL)
@@ -582,6 +844,10 @@ int main(int argc, char **argv)
 
     dumpInfo();
     Shader shader("asset/vertex.vs.glsl", "asset/fragment.fs.glsl");
+    Camera camera = Camera()
+                        .withPosition(vec3(0.0f, 120.0f, 0.0f))
+                        .withFar(5000.0f)
+                        .withMoveSpeed(300.0f);
     initialization();
 
     // register glfw callback functions
@@ -591,15 +857,25 @@ int main(int argc, char **argv)
     
     cout << "DEBUG::MAIN::F-MAIN::1" << endl;
     // main loop
+    float timeDifferent = 0.0f;
     while (!glfwWindowShouldClose(window))
     {
         // Poll input event
+
         glfwPollEvents();
+        timerUpdate();
         
-        display(shader);
+        processCameraMove(camera);
+        processCameraTrackball(camera, window);
+        display(shader, camera);
 
         // swap buffer from back to front
         glfwSwapBuffers(window);
+    }
+
+    for (int i = 0; i < 13; ++i)
+    {
+        cout << i << "\t" << textureTypes[i] << "\t" << checkTexture[i] << endl;
     }
     
     // just for compatibiliy purposes
