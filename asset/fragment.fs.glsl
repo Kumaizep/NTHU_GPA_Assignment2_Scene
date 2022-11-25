@@ -1,4 +1,4 @@
-#version 410
+#version 460
 
 layout(location = 0) out vec4 fragColor;
 
@@ -10,16 +10,22 @@ in VertexData
     vec3 N; // eye space normal
     vec3 L; // eye space light vector
     vec3 H; // eye space halfway vector
+    vec3 normal;
     vec2 texcoord;
 } vertexData;
 
+
+uniform int outputMode;
 // uniform sampler2D tex;
 uniform sampler2D textureDiffuse1;
 uniform sampler2D textureDiffuse2;
 
 void main()
 {
-    // vec3 texColor = texture(tex ,vertexData.texcoord).rgb;
-    // fragColor = vec4(texColor, 1.0);
-    fragColor = texture(textureDiffuse1 ,vertexData.texcoord);
+    // fragColor = texture(textureDiffuse1 ,vertexData.texcoord);
+
+    if (outputMode == 0)
+        fragColor = texture(textureDiffuse1 ,vertexData.texcoord);
+    else
+        fragColor = vec4(vertexData.normal, 1.0);
 }
