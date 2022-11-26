@@ -210,6 +210,7 @@ void reshapeResponse(GLFWwindow *window, int width, int height)
 {
 	glViewport(0, 0, width, height);
     compareBarX = compareBarX / frameWidth * width;
+    magnifierCenter = magnifierCenter / vec2(frameWidth, frameHeight) * vec2(width, height);
     frameWidth = guiMenuWidth = width;
     frameHeight = height;
     needUpdateFBO = true;
@@ -236,7 +237,6 @@ void keyboardResponse(GLFWwindow *window, int key, int scancode, int action, int
             if (action == GLFW_PRESS)
             {
                 keyPressing[key] = true;
-                // keyPressTime[key] = timerCounter;
             }
             else if (action == GLFW_RELEASE)
             {
@@ -246,20 +246,6 @@ void keyboardResponse(GLFWwindow *window, int key, int scancode, int action, int
         default:
             break;
     }
-}
-
-bool isInsideRectangle2(vec2 point, vec2 position, vec2 size)
-{
-    if (point.x > position.x + size.x)
-        return false;
-    else if (point.x < position.x)
-        return false;
-    else if (point.y > position.y + size.y)
-        return false;
-    else if (point.y < position.y)
-        return false;
-    else
-        return true;;
 }
 
 void mouseResponse(GLFWwindow *window, int button, int action, int mods)
@@ -303,8 +289,7 @@ void mouseResponse(GLFWwindow *window, int button, int action, int mods)
         }
     }
     if (button == GLFW_MOUSE_BUTTON_MIDDLE)
-    {
-        
+    {  
         if (action == GLFW_PRESS) {
             trackballEnable = true;
             printf("Mouse %d is pressed at (%f, %f)\n", button, x, y);
@@ -426,7 +411,7 @@ int main(int argc, char **argv)
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // specifies whether to use full resolution framebuffers on Retina displays
-    // glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
+    glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
     // create window
     GLFWwindow* window = glfwCreateWindow(INIT_WIDTH, INIT_HEIGHT, "GPA_Assignment2", NULL, NULL);
     if (window == NULL)
@@ -435,7 +420,6 @@ int main(int argc, char **argv)
         glfwTerminate();
         return -1;
     }
-    // glfwSetWindowPos(window, 100, 100);
     glfwMakeContextCurrent(window);
     
     // load OpenGL function pointer

@@ -80,21 +80,6 @@ public:
 
 	void activeAndBind(Shader& shader, GLuint unit)
 	{
-        // string number;
-        // string name = textures[i].type;
-        // for (int j = 1; j < 13; ++j)
-        // {
-        //     if (name == string(textureTypes[j]))
-        //     {
-        //         number = to_string(textureTypeNumber[j]++);
-        //         if (checkTexture[j] < i)
-        //             checkTexture[j] = i;
-        //     }
-        // }
-        // if (i > 0)  
-            // cout << name + number << endl;
-        // shader.setInt((name + number).c_str(), i);
-        // glUniform1f(glGetUniformLocation(shader->program, (name + number).c_str()), i);
         glActiveTexture(GL_TEXTURE0 + unit);
         glBindTexture(GL_TEXTURE_2D, id);
         shader.setVec2("textureSizeReciprocal", 1.0f / width, 1.0f / height);
