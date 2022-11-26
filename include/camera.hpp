@@ -40,7 +40,7 @@ public:
         top            = vec3(0.0f, 1.0f, 0.0f);
         right          = vec3(0.0f, 0.0f, 1.0f);
         fieldOfView    = 60.0f;
-        aspect         = (float)INIT_VIEWPORT_WIDTH / (float)INIT_VIEWPORT_HEIGHT;
+        aspect         = (float)INIT_WIDTH / (float)INIT_HEIGHT;
         near           = 0.1f;
         far            = 1000.0f;
         moveSpeed      = 10.0f;
@@ -55,23 +55,23 @@ public:
         return *this;
     }
 
-    Camera& withFront(vec3 val)
-    {
-        front = normalize(val);
-        return *this;
-    }
+    // Camera& withFront(vec3 val)
+    // {
+    //     front = normalize(val);
+    //     return *this;
+    // }
 
-    Camera& withTop(vec3 val)
-    {
-        top = normalize(val);
-        return *this;
-    }
+    // Camera& withTop(vec3 val)
+    // {
+    //     top = normalize(val);
+    //     return *this;
+    // }
 
-    Camera& withRight(vec3 val)
-    {
-        right = normalize(val);
-        return *this;
-    }
+    // Camera& withRight(vec3 val)
+    // {
+    //     right = normalize(val);
+    //     return *this;
+    // }
 
     Camera& withFieldOfView(float val)
     {
@@ -112,11 +112,14 @@ public:
     Camera& withTheta(float val)
     {
         theta = val;
+        updateCameraStatus();
         return *this;
     }
     Camera& withPhi(float val)
     {
-        phi = val;
+        if (val < 85 && val> -85)
+            phi = val;
+        updateCameraStatus();
         return *this;
     }
 
@@ -145,20 +148,18 @@ public:
         if (moveDirction == RIGHT)
             position += right * shift;
         if (moveDirction == UP)
-            position += top * shift;
+            position += vec3(0.0f, 1.0f, 0.0f) * shift;
         if (moveDirction == DOWN)
-            position -= top * shift;
+            position -= vec3(0.0f, 1.0f, 0.0f) * shift;
         cout << "DEBUG::MAIN::C-CAMERA-F-PM-2: " << position. x << " " << position.y << " " << position.z << endl;
     }
 
     void processTrackball(float thetaDifferent, float phiDifferent)
     {
         theta -= thetaDifferent * trackballSpeed;
-        phi += phiDifferent * trackballSpeed;
-        if (phi > 85)
-            phi = 85.0f;
-        else if (phi < -85)
-            phi += -85.0f;
+        float newPhi = phi + phiDifferent * trackballSpeed;
+        if (newPhi < 85 && newPhi> -85)
+            phi = newPhi;
         updateCameraStatus();
     };
 

@@ -14,18 +14,17 @@ in VertexData
     vec2 texcoord;
 } vertexData;
 
-
 uniform int outputMode;
-// uniform sampler2D tex;
-uniform sampler2D textureDiffuse1;
-uniform sampler2D textureDiffuse2;
+
+layout(binding = 0) uniform sampler2D texture1;
+layout(binding = 1) uniform sampler2D texture2;
+layout(binding = 2) uniform sampler2D texture3;
 
 void main()
 {
-    // fragColor = texture(textureDiffuse1 ,vertexData.texcoord);
-
     if (outputMode == 0)
-        fragColor = texture(textureDiffuse1 ,vertexData.texcoord);
+       fragColor = texture(texture1, vertexData.texcoord);
     else
-        fragColor = vec4(vertexData.normal, 1.0);
+       fragColor = vec4(vertexData.normal, 1.0);
+
 }

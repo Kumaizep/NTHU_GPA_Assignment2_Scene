@@ -9,7 +9,7 @@ public:
     GLuint program;
     Shader(const char* vertexPath, const char* fragmentPath)
     {
-        glViewport(INIT_VIEWPORT_X, INIT_VIEWPORT_Y, INIT_VIEWPORT_WIDTH, INIT_VIEWPORT_HEIGHT);
+        glViewport(INIT_VIEWPORT_X, INIT_VIEWPORT_Y, INIT_WIDTH, INIT_HEIGHT);
         glClearColor(0.0f, 0.3f, 0.0f, 1.00f);
         // glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glEnable(GL_DEPTH_TEST);
@@ -48,12 +48,27 @@ public:
     }
     // utility uniform functions
     // ------------------------------------------------------------------------
-    void setInt(const GLchar* name, int value) const
+    void setInt(const GLchar* name, int value)
     { 
         glUniform1i(glGetUniformLocation(program, name), value); 
     }
 
-    void setMat4(const GLchar* name, const glm::mat4 &mat) const
+    void setBool(const GLchar* name, bool value)
+    { 
+        glUniform1i(glGetUniformLocation(program, name), value); 
+    }
+
+    void setFloat(const GLchar* name, float value)
+    { 
+        glUniform1f(glGetUniformLocation(program, name), value); 
+    }
+
+    void setVec2(const GLchar* name, float x, float y)
+    { 
+        glUniform2f(glGetUniformLocation(program, name), x, y); 
+    }
+
+    void setMat4(const GLchar* name, const mat4 &mat)
     {
         glUniformMatrix4fv(glGetUniformLocation(program, name), 1, GL_FALSE, &mat[0][0]);
     }

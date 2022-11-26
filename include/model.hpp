@@ -6,6 +6,7 @@
 #include "assimp/Importer.hpp"
 #include "assimp/scene.h"
 #include "assimp/postprocess.h"
+#include "texture.hpp"
 
 vector<Texture> loadedTextures;
 
@@ -118,7 +119,7 @@ private:
     vector<Texture> processTextures(aiMesh* mesh, const aiScene* scene)
     {
         vector<Texture> textures;
-        aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];    
+        aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
 
         for (int i = 1; i < 13; ++i)
         {
@@ -139,14 +140,12 @@ private:
         {
             aiString str;
             mat->GetTexture(type, i, &str);
-            int loadIndex = getLoadedTextureId(str);
+            string filepath = directory + "/" + str.C_Str();
+            int loadIndex = getLoadedTextureId(filepath);
             if (loadIndex == -1)
             {
-                // cout << "DEBUG::MODEL::C-MODLE-F-LMT::FN: " << str.C_Str() << endl;
-                Texture texture;
-                texture.id = loadTexture(string(str.C_Str()), directory);
-                texture.type = typeName;
-                texture.path = str.C_Str();
+                cout << "DEBUG::MODEL::C-MODLE-F-LMT::FN: " << str.C_Str() << endl;
+                Texture texture = Texture(filepath, typeName);
                 textures.push_back(texture);
                 loadedTextures.push_back(texture);
             }
@@ -158,71 +157,16 @@ private:
         return textures;
     }
 
-    int getLoadedTextureId(aiString str)
+    int getLoadedTextureId(string str)
     {
         for(GLuint j = 0; j < loadedTextures.size(); j++)
         {
-            if(strcmp(loadedTextures[j].path.data(), str.C_Str()) == 0)
+            if(loadedTextures[j].comparePath(str.c_str()) == 0)
             {
                 return j;
             }
         }
         return -1;
-    }
-
-    GLuint loadTexture(const string &path, const string &directory)
-    {
-        const string filename = directory + '/' + path;
-        int width;
-        int height;
-        int colorChannel;
-        unsigned char *data = stbi_load(filename.c_str(), &width, &height, &colorChannel, 0);
-
-        GLuint textureID;
-        glGenTextures(1, &textureID);
-
-        if (data)
-        {
-            GLint internalFormat;
-            GLint format;
-            switch (colorChannel) {
-                case 1:
-                    internalFormat = GL_R8;
-                    format = GL_RED;
-                    break;
-                case 2:
-                    internalFormat = GL_RG8;
-                    format = GL_RG;
-                    break;
-                case 3:
-                    internalFormat = GL_RGB8;
-                    format = GL_RGB;
-                    break;
-                case 4:
-                    internalFormat = GL_RGBA8;
-                    format = GL_RGBA;
-                    break;
-                default:
-                    cout << "ERROR::Texture with unknow color channel " << colorChannel << ": " << directory + '/' + path << endl;
-                    break;
-            }
-
-            glBindTexture(GL_TEXTURE_2D, textureID);
-            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-            glGenerateMipmap(GL_TEXTURE_2D);
-
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        }
-        else
-        {
-            std::cout << "ERROR::Texture failed to load at path: " << filename << std::endl;
-        }
-
-        stbi_image_free(data);
-        return textureID;
     }
 };
 

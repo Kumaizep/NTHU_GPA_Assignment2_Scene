@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "shader.hpp"
+#include "texture.hpp"
 
 int checkTexture[14] = {0};
 
@@ -22,13 +23,6 @@ struct Vertex
     int mBoneIDs[MAX_BONE_INFLUENCE];
     // weights from each bone
     float mWeights[MAX_BONE_INFLUENCE];
-};
-
-struct Texture
-{
-    GLuint id;
-    string type;
-    string path;
 };
 
 class Mesh
@@ -53,24 +47,7 @@ public:
         }
         for (GLuint i = 0; i < textures.size(); i++)
         {
-            glActiveTexture(GL_TEXTURE0 + i);
-            string number;
-            string name = textures[i].type;
-            for (int j = 1; j < 13; ++j)
-            {
-                if (name == string(textureTypes[j]))
-                {
-                    number = to_string(textureTypeNumber[j]++);
-                    if (checkTexture[j] < i)
-                        checkTexture[j] = i;
-                }
-            }
-            // if (i > 0)  
-                // cout << name + number << endl;
-
-            glBindTexture(GL_TEXTURE_2D, textures[i].id);
-            // shader.setInt((name + number).c_str(), i);
-            // glUniform1f(glGetUniformLocation(shader->program, (name + number).c_str()), i);
+            textures[i].activeAndBind(shader, i);
         }
 
         glBindVertexArray(VAO);
